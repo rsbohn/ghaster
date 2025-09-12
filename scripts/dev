@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run the platformer locally
+export PYTHONPATH="${PYTHONPATH:-}:src"
+exec python3 -m game.main "$@"
+

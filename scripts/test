@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PYTHONPATH="${PYTHONPATH:-}:src"
+
+if command -v pytest >/dev/null 2>&1; then
+  exec pytest -q "$@"
+else
+  echo "pytest not found; running unittest discovery"
+  exec python3 -m unittest discover -s tests -p "test_*.py" -v
+fi
+

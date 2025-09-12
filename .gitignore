@@ -1,0 +1,38 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging artifacts
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Logs
+logs/
+*.log
+
+# Test/cache/coverage
+.pytest_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage*
+coverage.xml
+htmlcov/
+
+# OS/IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Produce a zip of sources as a simple build artifact
+ROOT_DIR=$(pwd)
+DIST_DIR="$ROOT_DIR/dist"
+mkdir -p "$DIST_DIR"
+
+ZIP_FILE="$DIST_DIR/platformer.zip"
+rm -f "$ZIP_FILE"
+
+zip -q -r "$ZIP_FILE" src assets docs scripts -x "*.pyc" -x "__pycache__/*" || true
+echo "Built: $ZIP_FILE"
+

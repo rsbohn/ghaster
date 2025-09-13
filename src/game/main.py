@@ -201,6 +201,10 @@ def run():
 
     camera_y = 0.0
 
+    # Cheat input state (e.g., "/d" for diamond, "/s" for spades)
+    cheat_active = False
+    cheat_buffer = ""
+
     # Level bounds for progress: base is floor, top is highest platform
     def compute_bounds(solids_list: List[Rect]) -> Tuple[float, float]:
         base = HEIGHT - 40
@@ -215,7 +219,8 @@ def run():
 
     base_y, top_y = compute_bounds(solids)
 
-    font_small = pygame.font.SysFont("consolas", 18)
+    # Use default font to avoid dependency on system font config (fc-list)
+    font_small = pygame.font.Font(None, 18)
 
     def try_enter_door(player_rect: Rect) -> Optional[Door]:
         for d in doors:
@@ -249,6 +254,31 @@ def run():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
+                # Capture textual input for simple cheats starting with '/'
+                try:
+                    ch = event.unicode
+                except Exception:
+                    ch = ""
+                if ch == "/":
+                    cheat_active = True
+                    cheat_buffer = ""
+                elif cheat_active and ch:
+                    if ch.lower() in ("d", "s"):
+                        if ch.lower() == "d":
+                            switch_board("diamond")
+                        elif ch.lower() == "s":
+                            switch_board("spades")
+                        cheat_active = False
+                        cheat_buffer = ""
+                    elif ch in ("\r", "\n", " "):
+                        cheat_active = False
+                        cheat_buffer = ""
+                    else:
+                        cheat_buffer += ch
+                        # Keep buffer small; cancel if unexpected long
+                        if len(cheat_buffer) > 8:
+                            cheat_active = False
+                            cheat_buffer = ""
                 if event.key == pygame.K_ESCAPE:
                     running = False
                 if event.key == pygame.K_r:
@@ -256,6 +286,11 @@ def run():
                     switch_board("top")
                     gravity = GRAVITY
                     jump_speed = JUMP_SPEED
+                if event.key == pygame.K_BACKSPACE and cheat_active:
+                    cheat_buffer = cheat_buffer[:-1]
+                    if not cheat_buffer:
+                        # remain active waiting for next char
+                        pass
                 if event.key in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
                     # If overlapping a door and pressing up/w, enter door instead of jump
                     entered = False
@@ -394,7 +429,8 @@ def run():
 def _draw_hud(
     screen, on_ground: bool, gravity: float, jump_speed: float, py: float, base_y: float, top_y: float
 ):
-    font = pygame.font.SysFont("consolas", 16)
+    # Default pygame font avoids 'fc-list' dependency
+    font = pygame.font.Font(None, 16)
     # compute progress
     total = max(1.0, base_y - top_y)
     climbed = max(0.0, base_y - py)

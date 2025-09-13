@@ -8,6 +8,8 @@ from typing import List
 import pygame
 
 from .physics import Rect, resolve_collisions
+from dataclasses import dataclass
+from typing import Tuple, Optional
 
 
 WIDTH, HEIGHT = 800, 600
@@ -21,9 +23,18 @@ JUMP_SPEED = 820.0  # base jump speed (adjustable)
 COYOTE_TIME = 0.12  # seconds after leaving ground to still allow jump
 JUMP_BUFFER = 0.12  # seconds to buffer jump input
 
+PLAYER_W, PLAYER_H = 40, 50
 
-def build_level() -> List[Rect]:
-    # Vertical climb layout: fixed width with side walls and many ascending platforms
+
+@dataclass
+class Door:
+    rect: Rect
+    label: str
+    target_board: str
+
+
+def build_top_board() -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
+    """Top (main) board with a vertical climb and two doors at the top."""
     solids: List[Rect] = []
     # Base floor
     solids.append(Rect(0, HEIGHT - 40, WIDTH, 40))
@@ -40,7 +51,94 @@ def build_level() -> List[Rect]:
         y -= 90  # closer vertical step for easier jumps
         solids.append(Rect(x, y, platform_w, platform_h))
 
-    return solids
+    # Find the highest platform within the visible width
+    top_candidates = [
+        s for s in solids if 0 <= s.x < WIDTH and s.w >= 100 and s.h <= 40 and s.y < HEIGHT - 60
+    ]
+    if top_candidates:
+        top_plat = min(top_candidates, key=lambda r: r.y)
+    else:
+        # Fallback to the floor if something goes odd
+        top_plat = Rect(WIDTH // 2 - platform_w // 2, HEIGHT - 1000, platform_w, platform_h)
+
+    # Place two doors on the top platform: ♦ and ♠
+    door_w, door_h = 40, 60
+    d1x = top_plat.x + top_plat.w * 0.30 - door_w / 2
+    d2x = top_plat.x + top_plat.w * 0.70 - door_w / 2
+    dy = top_plat.y - door_h
+    doors = [
+        Door(Rect(d1x, dy, door_w, door_h), "♦", "diamond"),
+        Door(Rect(d2x, dy, door_w, door_h), "♠", "placeholder"),
+    ]
+
+    spawn = (64.0, HEIGHT - 200.0)
+    return solids, doors, spawn
+
+
+def build_placeholder_board() -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
+    """Placeholder board: floor + two layers of platforms."""
+    solids: List[Rect] = []
+    # Base floor and side walls
+    solids.append(Rect(0, HEIGHT - 40, WIDTH, 40))
+    solids.append(Rect(-40, -5000, 40, 10000))
+    solids.append(Rect(WIDTH, -5000, 40, 10000))
+
+    # Two platform layers spanning the screen with gaps
+    layer_h = 20
+    y1 = HEIGHT - 240
+    y2 = HEIGHT - 400
+    gap = 80
+    plat_w = 220
+    xs = [40, 40 + plat_w + gap, WIDTH - plat_w - 40]
+    for x in xs:
+        solids.append(Rect(x, y1, plat_w, layer_h))
+        solids.append(Rect(x, y2, plat_w, layer_h))
+
+    doors: List[Door] = []  # No exits yet; this is a placeholder
+    spawn = (80.0, HEIGHT - 200.0)
+    return solids, doors, spawn
+
+
+def build_diamond_board() -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
+    """Diamond board: lots of narrow platforms; top door returns to board 1 (top)."""
+    solids: List[Rect] = []
+    # Base floor and side walls
+    solids.append(Rect(0, HEIGHT - 40, WIDTH, 40))
+    solids.append(Rect(-40, -5000, 40, 10000))
+    solids.append(Rect(WIDTH, -5000, 40, 10000))
+
+    # Narrow platforms in a long ascent
+    plat_w, plat_h = 90, 16
+    step_y = 80
+    y = HEIGHT - 140
+    cols = [60, WIDTH // 2 - plat_w // 2, WIDTH - plat_w - 60]
+    for i in range(1, 55):
+        x = cols[i % len(cols)]
+        y -= step_y
+        solids.append(Rect(x, y, plat_w, plat_h))
+
+    # Highest platform
+    top_plat = min([s for s in solids if s.h <= 40 and s.w >= 60], key=lambda r: r.y)
+
+    # Door at the top returning to top board
+    door_w, door_h = 40, 60
+    dx = top_plat.x + top_plat.w * 0.5 - door_w / 2
+    dy = top_plat.y - door_h
+    doors = [Door(Rect(dx, dy, door_w, door_h), "♦", "top")]
+
+    spawn = (80.0, HEIGHT - 200.0)
+    return solids, doors, spawn
+
+
+def build_board(name: str) -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
+    if name == "top":
+        return build_top_board()
+    elif name == "placeholder":
+        return build_placeholder_board()
+    elif name == "diamond":
+        return build_diamond_board()
+    else:
+        return build_top_board()
 
 
 def run():
@@ -62,8 +160,9 @@ def run():
     clock = pygame.time.Clock()
 
     # Game state
-    solids = build_level()
-    player = Rect(64, HEIGHT - 200, 40, 50)
+    current_board = "top"
+    solids, doors, spawn = build_board(current_board)
+    player = Rect(spawn[0], spawn[1], PLAYER_W, PLAYER_H)
     vx, vy = 0.0, 0.0
     on_ground = False
     gravity = GRAVITY
@@ -75,11 +174,39 @@ def run():
     camera_y = 0.0
 
     # Level bounds for progress: base is floor, top is highest platform
-    base_y = HEIGHT - 40
-    top_y = min(
-        (s.y for s in solids if 0 <= s.x < WIDTH and s.w >= 100),
-        default=base_y - 1,
-    )
+    def compute_bounds(solids_list: List[Rect]) -> Tuple[float, float]:
+        base = HEIGHT - 40
+        # Consider platform-like solids: not huge walls, within screen, reasonable size
+        candidates = [
+            s
+            for s in solids_list
+            if (s.h <= 60) and (s.w >= 40) and (s.x + s.w > 0) and (s.x < WIDTH)
+        ]
+        top = min((s.y for s in candidates), default=base - 1)
+        return base, top
+
+    base_y, top_y = compute_bounds(solids)
+
+    font_small = pygame.font.SysFont("consolas", 18)
+
+    def try_enter_door(player_rect: Rect) -> Optional[Door]:
+        for d in doors:
+            if player_rect.intersects(d.rect):
+                return d
+        return None
+
+    def switch_board(name: str, door_from: Optional[Door] = None):
+        nonlocal solids, doors, spawn, current_board, player, vx, vy, on_ground, base_y, top_y, camera_y
+        current_board = name
+        solids, doors, spawn = build_board(name)
+        # Place player at spawn; if coming from a door, keep horizontal center if reasonable
+        px = spawn[0]
+        py = spawn[1]
+        player = Rect(px, py, PLAYER_W, PLAYER_H)
+        vx, vy = 0.0, 0.0
+        on_ground = False
+        base_y, top_y = compute_bounds(solids)
+        camera_y = max(0.0, player.y - HEIGHT * 0.5)
 
     running = True
     # In headless test mode, exit after a few frames to avoid blocking CI/CLI
@@ -97,15 +224,23 @@ def run():
                 if event.key == pygame.K_ESCAPE:
                     running = False
                 if event.key == pygame.K_r:
-                    player = Rect(64, HEIGHT - 200, 40, 50)
-                    vx, vy = 0.0, 0.0
-                    on_ground = False
-                    camera_x = 0.0
+                    # Reset to top board spawn
+                    switch_board("top")
                     gravity = GRAVITY
                     jump_speed = JUMP_SPEED
                 if event.key in (pygame.K_SPACE, pygame.K_w, pygame.K_UP):
-                    jump_buffer = JUMP_BUFFER
-                    jump_held = True
+                    # If overlapping a door and pressing up/w, enter door instead of jump
+                    entered = False
+                    if event.key in (pygame.K_w, pygame.K_UP) and on_ground:
+                        d = try_enter_door(player)
+                        if d is not None:
+                            switch_board(d.target_board, d)
+                            jump_buffer = 0.0
+                            jump_held = False
+                            entered = True
+                    if not entered:
+                        jump_buffer = JUMP_BUFFER
+                        jump_held = True
                 if event.key == pygame.K_PAGEUP:
                     gravity = min(4000.0, gravity + 100.0)
                 if event.key == pygame.K_PAGEDOWN:
@@ -182,7 +317,26 @@ def run():
         # draw level
         for s in solids:
             rect = pygame.Rect(int(s.x), int(s.y - camera_y), int(s.w), int(s.h))
-            pygame.draw.rect(screen, (80, 200, 120), rect)
+            color = (80, 200, 120)
+            if current_board == "diamond":
+                # Color narrow platforms red; leave floor/walls green
+                is_floor = (abs(s.y - (HEIGHT - 40)) < 0.5 and abs(s.w - WIDTH) < 0.5)
+                is_platform_like = (s.h <= 30 and s.w <= 130 and s.y < HEIGHT - 60)
+                if is_platform_like and not is_floor:
+                    color = (200, 70, 70)
+            pygame.draw.rect(screen, color, rect)
+
+        # draw doors
+        for d in doors:
+            rect = pygame.Rect(int(d.rect.x), int(d.rect.y - camera_y), int(d.rect.w), int(d.rect.h))
+            color = (220, 80, 80) if d.label == "♦" else (40, 40, 60)
+            pygame.draw.rect(screen, color, rect)
+            pygame.draw.rect(screen, (230, 230, 240), rect, 2)
+            # Label
+            label_surf = font_small.render(d.label, True, (240, 240, 255))
+            lx = rect.x + rect.w // 2 - label_surf.get_width() // 2
+            ly = rect.y + rect.h // 2 - label_surf.get_height() // 2
+            screen.blit(label_surf, (lx, ly))
 
         # draw player
         prect = pygame.Rect(int(player.x), int(player.y - camera_y), int(player.w), int(player.h))

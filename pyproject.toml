@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mygame = "game.main:run"
+ghaster = "game.main:run"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

@@ -68,7 +68,7 @@ def build_top_board() -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
     dy = top_plat.y - door_h
     doors = [
         Door(Rect(d1x, dy, door_w, door_h), "♦", "diamond"),
-        Door(Rect(d2x, dy, door_w, door_h), "♠", "placeholder"),
+        Door(Rect(d2x, dy, door_w, door_h), "♠", "spades"),
     ]
 
     spawn = (64.0, HEIGHT - 200.0)
@@ -130,6 +130,32 @@ def build_diamond_board() -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
     return solids, doors, spawn
 
 
+def build_spades_board() -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
+    """Spades room: platforms along each side, open middle.
+    Platforms are dark gray; background handled in render.
+    """
+    solids: List[Rect] = []
+    # Base floor and side walls
+    solids.append(Rect(0, HEIGHT - 40, WIDTH, 40))
+    solids.append(Rect(-40, -5000, 40, 10000))
+    solids.append(Rect(WIDTH, -5000, 40, 10000))
+
+    # Side platforms (left and right), leave large open middle
+    plat_w, plat_h = 180, 20
+    left_x = 40
+    right_x = WIDTH - plat_w - 40
+    y = HEIGHT - 120
+    step_y = 90
+    for _ in range(1, 24):
+        y -= step_y
+        solids.append(Rect(left_x, y, plat_w, plat_h))
+        solids.append(Rect(right_x, y, plat_w, plat_h))
+
+    doors: List[Door] = []  # No exits defined; reset (R) to return
+    spawn = (80.0, HEIGHT - 200.0)
+    return solids, doors, spawn
+
+
 def build_board(name: str) -> Tuple[List[Rect], List[Door], Tuple[float, float]]:
     if name == "top":
         return build_top_board()
@@ -137,6 +163,8 @@ def build_board(name: str) -> Tuple[List[Rect], List[Door], Tuple[float, float]]
         return build_placeholder_board()
     elif name == "diamond":
         return build_diamond_board()
+    elif name == "spades":
+        return build_spades_board()
     else:
         return build_top_board()
 
@@ -307,18 +335,24 @@ def run():
         camera_y += (target_cy - camera_y) * min(1.0, dt * 5)
 
         # render
-        screen.fill((18, 18, 24))
+        if current_board == "spades":
+            # Medium blue-gray background, no parallax
+            screen.fill((75, 95, 120))
+        else:
+            screen.fill((18, 18, 24))
 
-        # parallax background bands
-        for i, color in enumerate([(35, 35, 55), (28, 28, 44), (24, 24, 38)]):
-            band_y = HEIGHT - 80 - i * 16
-            pygame.draw.rect(screen, color, (0, band_y, WIDTH, HEIGHT - band_y))
+            # parallax background bands
+            for i, color in enumerate([(35, 35, 55), (28, 28, 44), (24, 24, 38)]):
+                band_y = HEIGHT - 80 - i * 16
+                pygame.draw.rect(screen, color, (0, band_y, WIDTH, HEIGHT - band_y))
 
         # draw level
         for s in solids:
             rect = pygame.Rect(int(s.x), int(s.y - camera_y), int(s.w), int(s.h))
             color = (80, 200, 120)
-            if current_board == "diamond":
+            if current_board == "spades":
+                color = (60, 60, 70)  # dark gray platforms/walls/floor
+            elif current_board == "diamond":
                 # Color narrow platforms red; leave floor/walls green
                 is_floor = (abs(s.y - (HEIGHT - 40)) < 0.5 and abs(s.w - WIDTH) < 0.5)
                 is_platform_like = (s.h <= 30 and s.w <= 130 and s.y < HEIGHT - 60)
